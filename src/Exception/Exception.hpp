@@ -9,7 +9,7 @@
 # include <string>
 
 class Exception : public std::exception {
-	const std::string&	error_message;
+	const std::string	error_message;
 
 public:
 	explicit Exception(const std::string& error_message) : error_message(error_message) { }

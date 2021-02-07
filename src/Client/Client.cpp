@@ -5,7 +5,8 @@
 #include "Client.hpp"
 
 Client::Client(int client_socket, const sockaddr_in* sql_addr) : client_socket(client_socket),
-																 stage(read_sql_server_response) {
+																 stage(read_sql_server_response),
+																 in_processed(false) {
 	sql_socket = initSqlConnection(sql_addr);
 }
 

@@ -2,17 +2,23 @@
 // Created by nikita on 2/6/21.
 //
 
+#include <iostream>
 #include "Server.hpp"
 
-Server::Server(const std::string& sql_host, const std::string& sql_port, const char* logfile_name) : server_socket(initSocket()) {
+Server::Server(const std::string& sql_host, const std::string& sql_port, const char* logfile_name) : server_socket(initSocket()),
+																									number_workers(1) {
 	if ((logfile_fd = open(logfile_name, O_WRONLY | O_CREAT | O_APPEND, 0666)) == -1)
 		throw Exception("Errno: " + std::to_string(errno) + " (" + strerror(errno) + "). " + "Can't open logfile");
 	initSqlAddr(sql_host, sql_port);
+	createWorkers();
+	pipe(check_fd_sets);
 }
 
 Server::~Server() {
 	close(getServerSocket());
 	close(logfile_fd);
+	close(check_fd_sets[0]);
+	close(check_fd_sets[1]);
 	for (auto & client : clients)
 		delete client;
 }
@@ -41,7 +47,7 @@ int		Server::initSocket() {
 void	Server::initSqlAddr(const std::string& sql_host, const std::string& sql_port) {
 	memset(&sql_addr, 0, sizeof(sql_addr));
 	sql_addr.sin_family = PF_INET;
-	sql_addr.sin_port = inet_addr(sql_host.c_str());
+	sql_addr.sin_port = htons(atoi(sql_port.c_str()));
 	sql_addr.sin_addr.s_addr = inet_addr(sql_host.c_str());
 }
 
@@ -51,40 +57,75 @@ void	Server::initSets() {
 	FD_ZERO(&writefd_set);
 
 	FD_SET(getServerSocket(), &readfd_set);
+	FD_SET(check_fd_sets[0], &readfd_set);
 }
 
 void	Server::addNewClient() {
 	int		client_socket;
 
 	if (FD_ISSET(getServerSocket(), &readfd_set)) {
-		client_socket = accept(getServerSocket(), 0, 0);
+		if ((client_socket = accept(getServerSocket(), nullptr, nullptr)) == -1)
+			throw Exception("Errno: " + std::to_string(errno) + " (" + strerror(errno) + "). " + "Accept returned -1");
 		clients.push_back(new Client(client_socket, &sql_addr));
 	}
 }
 
 void	Server::handleConnect() {
-	for (auto& client : clients) {
-		if (FD_ISSET(client->getSocket(), &readfd_set) && client->getStage() == read_client_request)
-			readClientRequest(client);
-		if (FD_ISSET(client->getSocket(), &writefd_set) && client->getStage() == send_response_to_client)
-			sendResponseToClient(client);
-		if (FD_ISSET(client->getSqlSocket(), &readfd_set) && client->getStage() == read_sql_server_response)
-			readSqlServerResponse(client);
-		if (FD_ISSET(client->getSqlSocket(), &writefd_set) && client->getStage() == send_request_to_sql_server)
-			sendRequestToSqlServer(client);
+	for (auto client = clients.begin(); client != clients.end(); ++client) {
+		if ((*client)->getStage() == close_connection) {
+			delete *client;
+			client = clients.erase(client);
+		}
+		else if (!(*client)->inTaskQueue() &&
+			(FD_ISSET((*client)->getSocket(), &readfd_set) || FD_ISSET((*client)->getSocket(), &writefd_set) ||
+				FD_ISSET((*client)->getSqlSocket(), &readfd_set) || FD_ISSET((*client)->getSqlSocket(), &writefd_set)))
+			thread_pool.pushTask(*client);
+
+//		if (FD_ISSET(client->getSocket(), &readfd_set) && client->getStage() == read_client_request)
+//			readClientRequest(client);
+//		if (FD_ISSET(client->getSocket(), &writefd_set) && client->getStage() == send_response_to_client)
+//			sendResponseToClient(client);
+//		if (FD_ISSET(client->getSqlSocket(), &readfd_set) && client->getStage() == read_sql_server_response)
+//			readSqlServerResponse(client);
+//		if (FD_ISSET(client->getSqlSocket(), &writefd_set) && client->getStage() == send_request_to_sql_server)
+//			sendRequestToSqlServer(client);
+
+//		if (FD_ISSET((*client)->getSocket(), &readfd_set) && (*client)->getStage() == read_client_request)
+//			thread_pool.pushTask(*client);
+//		if (FD_ISSET((*client)->getSocket(), &writefd_set) && (*client)->getStage() == send_response_to_client)
+//			thread_pool.pushTask(*client);
+//		if (FD_ISSET((*client)->getSqlSocket(), &readfd_set) && (*client)->getStage() == read_sql_server_response)
+//			thread_pool.pushTask(*client);
+//		if (FD_ISSET((*client)->getSqlSocket(), &writefd_set) && (*client)->getStage() == send_request_to_sql_server)
+//			thread_pool.pushTask(*client);
 	}
 }
 
 void	Server::runServer() {
+	struct timeval	tv;
+	char			buff;
+	int				i = 0;
+
+	tv.tv_usec = 0;
+	initSets();
 	while (true) {
+		tv.tv_sec = 0;
 		initSets();
 		addClientSocketInSet();
 
-		if (select(max_fd + 1, &readfd_set, &writefd_set, 0, 0) == -1)
+		if (select(max_fd + 1, &readfd_set, &writefd_set, nullptr, nullptr) == -1)
 			throw Exception("Errno: " + std::to_string(errno) + " (" + strerror(errno) + "). " + "Select returned -1");
 
-		addNewClient();
-		handleConnect();
+		if (FD_ISSET(check_fd_sets[0], &readfd_set)) {
+			read(check_fd_sets[0], &buff, 1);
+			std::cout << i << std::endl;
+			i = 0;
+		}
+		else {
+			addNewClient();
+			handleConnect();
+		}
+		i++;
 	}
 }
 
@@ -160,4 +201,14 @@ void	Server::writeLog(const char* data, int read_bytes) const {
 	write(logfile_fd, time_buff, time_buff_length);
 	write(logfile_fd, data + 5, read_bytes - 5);
 	write(logfile_fd, "\n", 1);
+}
+
+void Server::createWorkers() {
+	pthread_t		worker_thread;
+
+	workers.reserve(number_workers);
+	for (int i = 0; i < number_workers; ++i) {
+		pthread_create(&worker_thread, nullptr, worker, (void*)this);
+		workers.push_back(worker_thread);
+	}
 }

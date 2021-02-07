@@ -24,6 +24,7 @@ class Client {
 	int				client_socket;
 	int				sql_socket;
 	stages			stage;
+	bool			in_processed;
 
 	int				initSqlConnection(const sockaddr_in* sql_addr);
 
@@ -31,16 +32,19 @@ public:
 	Client(int client_socket, const sockaddr_in* sql_addr);
 	~Client();
 
-	inline void		setStage(enum stages stage_) { stage = stage_; }
+	inline void				setStage(enum stages stage_) { stage = stage_; }
+	inline void				setProcessed(bool status) { in_processed = status; }
 
-	inline int		getStage() { return (stage); }
-	inline int		getSocket() { return (client_socket); }
-	inline int		getSqlSocket() { return (sql_socket); }
-	inline bytes&	getBody() { return (body); }
+	inline int				getStage() const { return (stage); }
+	inline int				getSocket() const { return (client_socket); }
+	inline int				getSqlSocket() const { return (sql_socket); }
+	inline const bytes&		getBody() const { return (body); }
 
-	inline void		addDataToBody(char* data, size_t size) { body.add(data, size); }
+	inline void				addDataToBody(char* data, size_t size) { body.add(data, size); }
 
-	inline void		clearBody() { body.clear(); }
+	inline void				clearBody() { body.clear(); }
+
+	inline bool				inTaskQueue() const { return (in_processed);}
 };
 
 #endif //DATAARMOR_TEST_CLIENT_HPP

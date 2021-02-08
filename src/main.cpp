@@ -2,7 +2,7 @@
 // Created by nikita on 2/6/21.
 //
 
-# include <Server.hpp>
+# include "Server.hpp"
 # include <iostream>
 # include <csignal>
 
@@ -14,10 +14,8 @@ enum arg_index {
 };
 
 void	close_server(int signum) {
-	if (signum == SIGINT || signum == SIGTERM) {
-		std::cout << "See you soon!" << std::endl;
+	if (signum == SIGINT || signum == SIGTERM)
 		exit(0);
-	}
 }
 
 char**	parse_argv(int argc, char** argv) {
@@ -50,7 +48,7 @@ int		main(int argc, char** argv) {
 	char**	parsing_argv;
 
 	signal(SIGTERM, close_server);
-	signal(SIGTERM, close_server);
+	signal(SIGINT, close_server);
 	try {
 		parsing_argv = parse_argv(argc, argv);
 		if (!parsing_argv[host])

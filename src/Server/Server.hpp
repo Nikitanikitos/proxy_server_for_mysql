@@ -58,7 +58,7 @@ class Server {
 	void					createWorkers();
 
 public:
-	Server(const std::string& sql_host, const std::string& sql_port = "3306", const char* logfile_name = "default.log");
+	Server(const std::string& sql_host, const std::string& sql_port, const char* logfile_name, int threads);
 	~Server();
 
 	void	runServer();

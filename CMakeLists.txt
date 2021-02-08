@@ -12,7 +12,7 @@ include_directories(
         )
 
 add_executable(dataarmor_test
-        main.cpp
+        src/main.cpp
         src/Server/Server.cpp
         src/Client/Client.cpp
         src/bytes/bytes.cpp

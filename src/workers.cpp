@@ -3,7 +3,6 @@
 //
 
 #include <Server.hpp>
-#include <iostream>
 
 [[noreturn]] void*	worker(void* arg) {
 	Server&			server = *(Server*)arg;
